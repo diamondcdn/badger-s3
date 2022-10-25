@@ -1,4 +1,4 @@
-package cmgs3
+package badgers3
 
 import (
 	"bytes"

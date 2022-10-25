@@ -1,18 +1,19 @@
-package cmgs3
+package badgers3
 
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/caddyserver/certmagic"
+	minio "github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"io"
 	"io/fs"
 	"io/ioutil"
 	"log"
 	"time"
-
-	"github.com/caddyserver/certmagic"
-	minio "github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 type S3Opts struct {
@@ -81,6 +82,11 @@ var (
 )
 
 func (gs *S3Storage) Lock(ctx context.Context, key string) error {
+	// There is no need to lock any file if it is cached so we return if it is cached
+	if isCacheEntryExistent([]byte(key)) {
+		return nil
+	}
+
 	var startedAt = time.Now()
 
 	for {
@@ -119,6 +125,11 @@ func (gs *S3Storage) putLockFile(key string) error {
 }
 
 func (gs *S3Storage) Unlock(ctx context.Context, key string) error {
+	// There is no need to unlock any file if it is cached so we return if it is cached
+	if isCacheEntryExistent([]byte(key)) {
+		return nil
+	}
+
 	return gs.s3client.RemoveObject(ctx, gs.bucket, gs.objLockName(key), minio.RemoveObjectOptions{})
 }
 
@@ -135,15 +146,28 @@ func (gs *S3Storage) Store(ctx context.Context, key string, value []byte) error 
 }
 
 func (gs *S3Storage) Load(ctx context.Context, key string) ([]byte, error) {
+	// We try to get the cached file from our storage here
+	if isCacheEntryExistent([]byte(key)) {
+		// Get the key info
+		rawKi := getCacheEntry([]byte(key))
+		if rawKi != nil {
+			// We have the cached file, return it as a byte array
+			return []byte(*rawKi), nil
+		}
+	}
+	g
 	r, err := gs.s3client.GetObject(ctx, gs.bucket, gs.objName(key), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fs.ErrNotExist
 	}
 	defer r.Close()
-	buf, err := ioutil.ReadAll(gs.iowrap.WrapReader(r))
+	buf, err := io.ReadAll(gs.iowrap.WrapReader(r))
 	if err != nil {
 		return nil, fs.ErrNotExist
 	}
+
+	// We have gotten a file from S3, let's cache it, no need to do any marshalling here!
+	setCacheEntry([]byte(key), buf, time.Hour*1)
 
 	return buf, nil
 }
@@ -170,6 +194,24 @@ func (gs *S3Storage) List(ctx context.Context, prefix string, recursive bool) ([
 
 func (gs *S3Storage) Stat(ctx context.Context, key string) (certmagic.KeyInfo, error) {
 	var ki certmagic.KeyInfo
+
+	// First we check if we've already cached the stat data for the file
+	if isCacheEntryExistent([]byte(key + "_ki")) {
+		// Get the key info
+		rawKi := getCacheEntry([]byte(key + "_ki"))
+		if rawKi != nil {
+			// Ensure that we only continue the cache fetch process if the key exists
+
+			// Deserialize
+			err := json.Unmarshal([]byte(*rawKi), &ki)
+			if err == nil {
+				// Only return if we had no errors with deserialization and actually got the value
+				return ki, nil
+			}
+		}
+	}
+
+	// This is the normal flow and will contact S3 for the data and then cache it afterwards
 	oi, err := gs.s3client.StatObject(ctx, gs.bucket, gs.objName(key), minio.StatObjectOptions{})
 	if err != nil {
 		return ki, err
@@ -178,6 +220,15 @@ func (gs *S3Storage) Stat(ctx context.Context, key string) (certmagic.KeyInfo, e
 	ki.Size = oi.Size
 	ki.Modified = oi.LastModified
 	ki.IsTerminal = true
+
+	// Store the info in the cache storage so we don't have to contact S3 again for a while
+	jsonKi, err := json.Marshal(ki)
+	if err == nil {
+		// Only set when we know the JSON data is valid
+		setCacheEntry([]byte(key+"_ki"), jsonKi, time.Hour*1)
+	}
+
+	// Return
 	return ki, nil
 }
 
