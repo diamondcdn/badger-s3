@@ -155,7 +155,6 @@ func (gs *S3Storage) Load(ctx context.Context, key string) ([]byte, error) {
 			return []byte(*rawKi), nil
 		}
 	}
-	g
 	r, err := gs.s3client.GetObject(ctx, gs.bucket, gs.objName(key), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fs.ErrNotExist
