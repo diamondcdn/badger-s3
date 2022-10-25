@@ -4,6 +4,11 @@ This library allows you to use any S3-compatible provider as key/certificate sto
 
 See example/ for an exemplary integration.
 
+## Why have we made this fork?
+Whilst using this plugin, Certmagic itself calls the Load and other functions quite a lot and there is not any level of caching on those functions for the library. We've chosen BadgerDB which is a proven database that has been able to handle millions of concurrent reads and writes on our systems. We've learned that the default S3 cache library simply cannot cut it and handle the amount of requests we receive. 
+
+The aim of this fork is to improve performance and scalability when it comes to using the AWS S3 storage with Certmagic to store certificates.
+
 ## What is a S3-compatible service?
 
 In the current state, any service must support the following:
@@ -23,3 +28,9 @@ Known good providers/software:
 - Minio (with HTTPS enabled)
 - Backblaze
 - AWS
+
+### For development
+Our caching key format is as follows
+
+- `<key>` - Just a regular S3 file
+- `<key_ki> - The key info for a S3 file
