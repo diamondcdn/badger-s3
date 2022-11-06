@@ -1,6 +1,6 @@
 module github.com/diamondcdn/badger-s3
 
-go 1.19
+go 1.18
 
 require (
 	github.com/caddyserver/certmagic v0.17.2
