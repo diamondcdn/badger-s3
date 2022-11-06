@@ -21,7 +21,7 @@ func handleCacheError(err error) {
 func getCacheDb() *badger.DB {
 	db, err := badger.Open(badger.DefaultOptions("/tmp/badger-s3"))
 	if err != nil {
-		fmt.Errorf("unable to open badgerdb, check that there isn't already an instance running")
+		_ = fmt.Errorf("unable to open badgerdb, check that there isn't already an instance running")
 	}
 
 	return db
